@@ -1,0 +1,11 @@
+broadcast:
+  freeze: ""
+  continue: ""
+trigger:
+  enabled: true
+  # TPS average timing. Available options: ONE, FIVE, FIFTEEN
+  timing: FIVE
+  # When TPS is considered as low
+  low: 10.0
+  # When TPS is considered as fine to re-enable flowing
+  recover: 16.0

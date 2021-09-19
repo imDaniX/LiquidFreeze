@@ -1,0 +1,10 @@
+name: LiquidFreeze
+version: '${project.version}'
+main: me.imdanix.liquid.LiquidFreeze
+api-version: '1.17'
+authors: [ imDaniX ]
+description: '${project.description}'
+commands:
+  liquidfreeze:
+    aliases: [lfreeze]
+    permission: 'liquidfreeze.command'
