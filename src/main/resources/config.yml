@@ -9,3 +9,5 @@ trigger:
   low: 10.0
   # When TPS is considered as fine to re-enable flowing
   recover: 16.0
+  # How many block we should recover per try after TPS stabilization? One try is 10 ticks
+  recovers-per-try: 2
