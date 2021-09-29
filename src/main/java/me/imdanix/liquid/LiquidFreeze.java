@@ -3,7 +3,9 @@ package me.imdanix.liquid;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Location;
+import org.bukkit.Material;
 import org.bukkit.block.Block;
+import org.bukkit.block.data.Levelled;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.file.FileConfiguration;
@@ -11,7 +13,9 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.HandlerList;
 import org.bukkit.event.Listener;
+import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockFromToEvent;
+import org.bukkit.event.player.PlayerBucketEmptyEvent;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitScheduler;
 import org.jetbrains.annotations.NotNull;
@@ -34,6 +38,7 @@ public final class LiquidFreeze extends JavaPlugin implements Listener {
 
     private String broadcastOn;
     private String broadcastOff;
+    private String messagePlace;
     private Timing timing;
     private boolean auto;
     private double low;
@@ -66,18 +71,8 @@ public final class LiquidFreeze extends JavaPlugin implements Listener {
             }
         }, 1200, 1200);
         scheduler.runTaskTimer(this, () -> {
-            if (!cache.isEmpty()) {
-                List<Location> diff = new ArrayList<>();
-                for (Location location : cache) {
-                    if (toRestore.add(location)) {
-                        diff.add(location);
-                    }
-                }
-                cache.clear();
-                if (!diff.isEmpty()) scheduler.runTaskAsynchronously(this, () -> diff.forEach(database::saveLocation));
-            }
-            if (frozen) return;
-            if (!toRestore.isEmpty()) {
+            dropCache(scheduler);
+            if (!frozen && !toRestore.isEmpty()) {
                 Iterator<Location> iterator = toRestore.iterator();
                 List<Location> toRemove = new ArrayList<>(recoversPerTick);
                 while (toRemove.size() <= recoversPerTick && iterator.hasNext()) {
@@ -92,12 +87,45 @@ public final class LiquidFreeze extends JavaPlugin implements Listener {
                 }
                 scheduler.runTaskLaterAsynchronously(this, () -> toRemove.forEach(database::removeLocation), 2);
             }
-        }, 1201, 10);
+        }, 10, 10);
+    }
+
+    @Override
+    public void onDisable() {
+        dropCache(null);
+    }
+
+    private void dropCache(BukkitScheduler scheduler) {
+        if (!cache.isEmpty()) {
+            List<Location> diff = new ArrayList<>();
+            for (Location location : cache) {
+                if (toRestore.add(location)) {
+                    diff.add(location);
+                }
+            }
+            cache.clear();
+            if (!diff.isEmpty()) {
+                if (scheduler != null)
+                    scheduler.runTaskAsynchronously(this, () -> diff.forEach(database::saveLocation));
+                else
+                    diff.forEach(database::saveLocation);
+            }
+        }
     }
 
     private static void update(Location location) {
         Block block = location.getBlock();
-        if (block.isLiquid()) block.getState().update(true, true);
+        if (block.isLiquid()) {
+            Levelled data = (Levelled) block.getBlockData();
+            if (data.getLevel() == 0) {
+                Material type = block.getType();
+                block.setType(Material.AIR, false);
+                block.setType(type, true);
+            } else {
+                block.setType(block.getType(), false);
+                block.setBlockData(data, true);
+            }
+        }
     }
 
     private void reload() {
@@ -105,6 +133,7 @@ public final class LiquidFreeze extends JavaPlugin implements Listener {
         FileConfiguration cfg = getConfig();
         broadcastOn = clr(cfg.getString("broadcast.freeze", ""));
         broadcastOff = clr(cfg.getString("broadcast.continue", ""));
+        messagePlace = clr(cfg.getString("broadcast.place", ""));
         try {
             timing = Timing.valueOf(cfg.getString("trigger.timing", "FIVE").toUpperCase(Locale.ROOT));
         } catch (IllegalArgumentException e) {
@@ -118,10 +147,21 @@ public final class LiquidFreeze extends JavaPlugin implements Listener {
 
     @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
     public void onLiquid(BlockFromToEvent event) {
-        if (event.getBlock().isLiquid()) {
+        Block block = event.getBlock();
+        if (block.isLiquid()) {
             event.setCancelled(true);
-            cache.add(event.getBlock().getLocation());
+            cache.add(block.getLocation());
         }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onBucket(PlayerBucketEmptyEvent event) {
+        if (!messagePlace.isEmpty()) event.getPlayer().sendMessage(messagePlace);
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onIce(BlockBreakEvent event) {
+        if (event.getBlock().getType() == Material.ICE && !messagePlace.isEmpty()) event.getPlayer().sendMessage(messagePlace);
     }
 
     @Override
@@ -129,8 +169,9 @@ public final class LiquidFreeze extends JavaPlugin implements Listener {
         if (args.length == 0 || (args[0] = args[0].toLowerCase(Locale.ROOT)).equals("help")) {
             sender.sendMessage(clr("&6&lLiquidFreeze v" + getDescription().getVersion()));
             sender.sendMessage(clr("&a/liquidfreeze freeze&7 - Turn liquids halt on"));
-            sender.sendMessage(clr("&a/liquidfreeze continue&7 - Turn liquids halt off; will not restore the flow of existing liquids"));
+            sender.sendMessage(clr("&a/liquidfreeze continue&7 - Turn liquids halt off"));
             sender.sendMessage(clr("&a/liquidfreeze reload&7 - Reload plugin's config file"));
+            if (!toRestore.isEmpty()) sender.sendMessage(clr("&eCurrently &6&l" + toRestore.size() + " blocks&e are frozen"));
         } else if (args[0].equals("freeze")) {
             if (turn(true)) {
                 forced = true;

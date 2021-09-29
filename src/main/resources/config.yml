@@ -1,6 +1,7 @@
 broadcast:
   freeze: ""
   continue: ""
+  place: ""
 trigger:
   enabled: true
   # TPS average timing. Available options: ONE, FIVE, FIFTEEN
